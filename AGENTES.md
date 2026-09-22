@@ -5,6 +5,39 @@ profissional travada é tratada como **caso**: material bruto → hipóteses →
 teste contra evidência → veredito → plano. Nenhum agente inventa — quem não
 tem citação (`arquivo:linha`) não tem argumento. O mundo chega em dict;
 nenhum agente abre arquivo.
+## Para você, se você é outro agente (Claude Code, Codex, OpenCode, Hermes…)
+
+Este repositório roda onde o Python ≥ 3.7 roda: sem dependência, sem pip
+install, sem chave de API. Determinístico por padrão (`MIND_SEM_IA=1` força
+offline; com LLM, a ordem Ollama → OpenAI → OpenRouter só acrescenta leituras
+independentes — não muda evidência nem o selo).
+
+**Como usar:**
+
+```bash
+# 1. investigação completa de um caso (recomendado)
+python3 mindmestre plano <pasta-de-notas> -o saida/caso
+cat saida/caso/plano.md      # escrito para você: H2 por fase + índice JSON no fim
+
+# 2. só o mapa (rápido): sinais, ativos, objetivo e números com arquivo:linha
+python3 mindmestre mapa <pasta> --json
+
+# 3. como biblioteca (agentes recebem e devolvem dicts)
+python3 -c "from agentes import Cartografo; print(Cartografo().destrinchar('exemplos/mariana-fisioterapia')['resumo'])"
+```
+
+**Contrato:** o diretório `-o` recebe `plano.pdf`, `plano.docx`, `plano.md`,
+`mapa.json`, `plano.mmd`, `mapa.mmd`, `obsidian/`. Toda afirmação carrega
+`arquivo:linha`; sem endereço, é não-validado. O índice JSON no fim do
+`plano.md` traz prompts prontos para continuar o trabalho em outra sessão.
+
+**Prompt pronto** (colar em qualquer agente com acesso à pasta):
+
+> Leia este repositório inteiro (README.md, AGENTES.md, `mind_core/`,
+> `agentes/`) — Python de stdlib. Depois investigue o caso de `<pasta>`: rode
+> `python3 mindmestre plano <pasta> -o saida/caso`, leia todo o
+> `saida/caso/plano.md` e me resuma a fase 1 em 5 bullets, fazendo as
+> perguntas abertas antes de eu avançar.
 
 ```mermaid
 flowchart TD
