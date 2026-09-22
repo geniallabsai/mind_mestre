@@ -1,0 +1,337 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Mind Mestre — Genial Labs. CLI.
+
+Investiga vidas profissionais travadas: pergunta (Inquisidor), forma
+hipóteses (Detetive), julga (Cético × Convicto × Juiz) e entrega o plano
+estruturado com produto, marca, oferta e conteúdo — sempre em PDF, DOCX,
+Markdown para agentes, Obsidian, mermaid e JSON."""
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+from datetime import datetime
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+RAIZ = os.path.dirname(os.path.abspath(__file__))
+if RAIZ not in sys.path:
+    sys.path.insert(0, RAIZ)
+
+from mind_core import __version__, REPO  # noqa: E402
+from mind_core import llm  # noqa: E402
+from mind_core import mermaid, relatorios  # noqa: E402
+from mind_core.arte import bloco  # noqa: E402
+from agentes import (Cartografo, Cetico, Conteudista, Convicto, Copista,  # noqa: E402
+                     Detetive, Estrategista, GenioMarketing, Inquisidor,
+                     Juiz, Posicionador)
+
+CINZA, BRANCO, CIANO, VERDE, VERMELHO, AMARELO = "90", "97", "96", "92", "91", "93"
+_CORES = {"cinza": CINZA, "branco": BRANCO, "ciano": CIANO, "verde": VERDE,
+          "vermelho": VERMELHO, "amarelo": AMARELO}
+
+
+def ag(texto, cor="branco"):
+    return "\033[%sm%s\033[0m" % (_CORES.get(cor, BRANCO), texto)
+
+
+def banner():
+    for l in bloco():
+        print(ag(l, "ciano"))
+    print(ag("  Genial Labs · MIND MESTRE  v%s" % __version__, "branco"))
+    print("  Pergunta. Hipótese. Evidência. Plano. — destrava vidas profissionais travadas.\n")
+
+
+class Progresso:
+    def __init__(self, rotulo):
+        self.rotulo = rotulo
+        self.ativa = False
+
+    def __call__(self, etapa, i, total):
+        frac = int(30 * i / max(1, total))
+        nova = "  %s [%s] %d/%d" % (self.rotulo, "█" * frac + "░" * (30 - frac), i, total)
+        if not self.ativa:
+            print(nova.ljust(78))
+            self.ativa = True
+        else:
+            sys.stdout.write("\r" + nova.ljust(78))
+            sys.stdout.flush()
+
+    def fim(self):
+        if self.ativa:
+            sys.stdout.write("\r" + " " * 78 + "\n")
+
+
+def slug_de(nome):
+    return re.sub(r"[^a-z0-9]+", "-", (nome or "alvo").lower()).strip("-") or "alvo"
+
+
+def saida_padrao(slug):
+    return os.path.join("saida", slug + "-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+
+def _destino():
+    return os.path.expanduser("~/.genial-mind-mestre")
+
+
+TEMA_DE_HIPOTESE = {"exposicao": "exposicao", "tempo": "tempo", "oferta": "oferta",
+                    "valor": "valor", "prova": "prova", "foco": "foco"}
+
+
+def cmd_mapa(args):
+    banner()
+    P = Progresso("Cartógrafo — destrinchando o material")
+    mapa = Cartografo().destrinchar(args.alvo, P)
+    P.fim()
+    base = args.o or saida_padrao(slug_de(mapa.get("nome")))
+    os.makedirs(base, exist_ok=True)
+    with open(os.path.join(base, "mapa.json"), "w", encoding="utf-8", newline="") as f:
+        json.dump(mapa, f, ensure_ascii=False, indent=2)
+    with open(os.path.join(base, "mapa.mmd"), "w", encoding="utf-8", newline="") as f:
+        f.write(mermaid.mapa_mermaid(mapa) + "\n")
+    cont = {}
+    for s in mapa.get("sinais", []):
+        cont[s["tipo"]] = cont.get(s["tipo"], 0) + 1
+    print(ag("✓ Mapa pronto em %s" % base, "verde"))
+    print("  persona: %s · %d arquivos · %d palavras" % (
+        mapa.get("persona_nome") or "?", mapa["arquivos_total"], mapa["palavras"]))
+    print("  sinais: " + (", ".join("%s×%d" % kv for kv in sorted(cont.items())) or "—"))
+    print("  ativos: %d · produtos: %s" % (
+        len(mapa.get("ativos", [])), ", ".join(mapa.get("produtos_mentionados", [])) or "—"))
+    if mapa.get("objetivo_declarado"):
+        print("  objetivo: %s" % mapa["objetivo_declarado"][:100])
+    if args.json:
+        print(json.dumps(mapa, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_plano(args):
+    if args.sem_ia:
+        os.environ["MIND_SEM_IA"] = "1"
+    banner()
+    P = Progresso("1/9 Cartógrafo — mapeando a vida profissional")
+    mapa = Cartografo().destrinchar(args.alvo, P)
+    P.fim()
+    P = Progresso("2/9 Detetive — formando e testando hipóteses")
+    det = Detetive().investigar(mapa, P)
+    P.fim()
+    P = Progresso("3/9 Tribunal — Cético × Convicto × Juiz")
+    obj = Cetico().objetar(mapa, det)
+    defs = Convicto().defender(mapa, det)
+    juizo = Juiz().decidir(mapa, det, obj, defs)
+    P("pontuando", 1, 1)
+    P.fim()
+    P = Progresso("4/9 Gênio do Marketing — nicho, persona, empatia")
+    mkt = GenioMarketing().estudar(mapa, P)
+    P.fim()
+    P = Progresso("5/9 Posicionador — território da marca")
+    pos = Posicionador().posicionar(mapa, mkt, P)
+    P.fim()
+    P = Progresso("6/9 Copista — oferta irresistível (corpus 20+ anos)")
+    oferta = Copista().escrever(mapa, mkt, pos, det, P)
+    P.fim()
+    P = Progresso("7/9 Conteudista — máquina de conteúdo viral")
+    ct = Conteudista().montar(mapa, mkt, P)
+    P.fim()
+    P = Progresso("8/9 Estrategista — montando as 6 fases")
+    plano = Estrategista().estruturar({"mapa": mapa, "det": det, "mkt": mkt, "pos": pos,
+                                        "oferta": oferta, "ct": ct, "juizo": juizo}, P)
+    P.fim()
+    P = Progresso("9/9 Publicando os artefatos")
+    base = args.o or saida_padrao(slug_de(mapa.get("nome")))
+    caminhos = relatorios.escrever_tudo(base, plano, mapa)
+    P.fim()
+    s = plano["selo_juiz"]
+    print(ag("\n✓ Plano pronto em %s" % base, "verde"))
+    print("  selo do juiz: %s  %d/100 — %s" % (s["barra"], s["confianca"], s["decisao"]))
+    for k in ("pdf", "docx", "md", "mapa_json", "mmd_mapa", "mmd_plano", "obsidian"):
+        print("  %-10s %s" % (k + ":", os.path.basename(caminhos[k])))
+    print(ag("\nSe você é outro agente: leia %s (e mapa.json para evidência)." % caminhos["md"], "amarelo"))
+    print(ag("Primeiro prompt sugerido:\n  %s" % plano["prompts"][0], "amarelo"))
+    return 0
+
+
+def cmd_conversa(args):
+    banner()
+    mapa = None
+    if args.alvo:
+        P = Progresso("Cartógrafo — mapeando o material")
+        mapa = Cartografo().destrinchar(args.alvo, P)
+        P.fim()
+        det = Detetive().investigar(mapa)
+        tema = args.tema or TEMA_DE_HIPOTESE.get(det.get("principal", ""), "abertura")
+    else:
+        tema = args.tema or "abertura"
+    inq = Inquisidor()
+    estado = inq.estado_inicial(mapa, tema)
+    pares = []
+    for _ in range(max(1, args.rodadas)):
+        q = inq.pergunta(estado)
+        print(ag("Inquisidor:", "ciano") + " " + q)
+        try:
+            r = input(ag("você: ", "branco")).strip()
+        except EOFError:
+            break
+        if not r or r.lower() in ("fim", "sair", "fim.", "ok"):
+            break
+        inq.responder(estado, r)
+        pares.append((q, r))
+    base = args.o or os.path.join("saida", "conversa-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+    os.makedirs(base, exist_ok=True)
+    res = inq.fechar(estado)
+    L = ["# Conversa com o Inquisidor", "",
+         "Tema inicial: %s · respostas: %d · nível final: %d" % (tema, len(pares), estado["nivel"]), ""]
+    for q, r in pares:
+        L += ["**Pergunta:** %s" % q, "", "Resposta: %s" % r, ""]
+    L += ["---", "", "Resumo da nuance: " + json.dumps(res, ensure_ascii=False)]
+    cam = os.path.join(base, "conversa.md")
+    with open(cam, "w", encoding="utf-8", newline="") as f:
+        f.write("\n".join(L))
+    print(ag("\n✓ Transcrição salva em %s" % cam, "verde"))
+    alvo = args.alvo or "<seu-diretorio-de-notas>"
+    print(ag("Sugestão: rode  mindmestre plano %s  para transformar tudo em plano estruturado." % alvo, "amarelo"))
+    return 0
+
+
+def cmd_debate(args):
+    tema = " ".join(args.tema)
+    banner()
+    if args.alvo:
+        P = Progresso("Cartógrafo — mapeando o material")
+        mapa = Cartografo().destrinchar(args.alvo, P)
+        P.fim()
+        det = Detetive().investigar(mapa)
+        src = args.alvo
+    else:
+        mapa = {"nome": "debate", "persona_nome": None, "origem": "-", "arquivos_total": 0, "palavras": 0,
+                "secoes": [], "sinais": [], "ativos": [], "produtos_mentionados": [],
+                "objetivo_declarado": None, "quero_produto": False, "numeros": [],
+                "resumo": tema[:120]}
+        det = Detetive().investigar(mapa)
+        src = "tema livre"
+    if tema:
+        print(ag("Tema: %s" % tema, "branco") + ag("  (fonte: %s)" % src, "cinza"))
+    obj = Cetico().objetar(mapa, det)
+    defs = Convicto().defender(mapa, det)
+    juizo = Juiz().decidir(mapa, det, obj, defs)
+    print()
+    for o in obj:
+        print(ag("Cético:", "vermelho") + " [%s] %s" % (o["nivel"], o["texto"]))
+        print(ag("   ↑ %s" % o.get("evidencia", ""), "cinza"))
+    for d in defs:
+        print(ag("Convicto:", "verde") + " %s" % d["texto"])
+        print(ag("   ↑ %s" % d.get("evidencia", ""), "cinza"))
+    print()
+    print(ag("Juiz:", "ciano") + " " + ag(juizo["barra"], "branco"))
+    print(ag("     confiança %d/100 — %s" % (juizo["confianca"], juizo["decisao"]), "ciano"))
+    return 0
+
+
+def cmd_status(args):
+    banner()
+    print(ag("mindmestre %s" % __version__, "branco"))
+    print("repositório: %s" % REPO)
+    det_ia = llm.detectar()
+    print("IA: %s" % (("offline — motor determinístico (MIND_SEM_IA)") if not det_ia
+                        else "%s/%s" % det_ia))
+    print("\nTime (agentes/, um arquivo por agente):")
+    for A in (Cartografo, Detetive, Estrategista, GenioMarketing, Inquisidor,
+              Posicionador, Conteudista, Copista, Cetico, Convicto, Juiz):
+        print("  %-18s %s" % (ag(A.nome, "ciano"), A.papel[:70]))
+    return 0
+
+
+def cmd_instale(args):
+    if sys.platform.startswith("win"):
+        print("No Windows use o PowerShell:  powershell -ExecutionPolicy Bypass -File install.ps1")
+        return 1
+    destino = _destino()
+    if os.path.exists(destino):
+        shutil.rmtree(destino)
+    shutil.copytree(RAIZ, destino, ignore=shutil.ignore_patterns("__pycache__", "saida", "testes", ".git"))
+    bin_dir = os.path.expanduser("~/.local/bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    wrapper = os.path.join(bin_dir, "mindmestre")
+    with open(wrapper, "w", encoding="utf-8", newline="") as f:
+        f.write("#!/bin/sh\nexport PYTHONUTF8=1\nexport PYTHONIOENCODING=utf-8\nexec python3 \"%s/mindmestre\" \"$@\"\n" % destino)
+    os.chmod(wrapper, 0o755)
+    print(ag("✓ Mind Mestre instalado em %s (comando global: mindmestre)" % destino, "verde"))
+    if bin_dir not in os.environ.get("PATH", "").split(os.pathsep):
+        print(ag("avise: adicione %s ao PATH  →  export PATH=\"%s:$PATH\"" % (bin_dir, bin_dir), "amarelo"))
+    return 0
+
+
+def cmd_desinstale(args):
+    wrapper = os.path.expanduser("~/.local/bin/mindmestre")
+    destino = _destino()
+    removidos = []
+    if os.path.exists(wrapper):
+        os.remove(wrapper)
+        removidos.append(wrapper)
+    if os.path.exists(destino):
+        shutil.rmtree(destino)
+        removidos.append(destino)
+    print(ag("✓ desinstalado: %s" % (", ".join(removidos) or "nada (já estava limpo)"), "verde"))
+    return 0
+
+
+def cmd_arte(args):
+    for l in bloco():
+        print(ag(l, "ciano"))
+    return 0
+
+
+def cmd_versao(args):
+    print(__version__)
+    return 0
+
+
+MENU = """Comandos:
+  mindmestre                      ← banner + este menu
+  mindmestre mapa ALVO [--json]   ← lê o material e para no mapa (mapa.json + mapa.mmd)
+  mindmestre plano ALVO [-o DIR]  ← investigação completa → PDF+DOCX+MD+Obsidian+MMD+JSON
+  mindmestre conversa [ALVO]      ← interrogatório socrático calibrado pela sua nuance
+  mindmestre debate TEMA… [--alvo]← Cético × Convicto × Juiz ao vivo
+  mindmestre status               ← equipe + motor de IA
+  mindmestre instale / desinstale / arte / versao"""
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="mindmestre", description="Mind Mestre — Genial Labs")
+    sub = ap.add_subparsers(dest="cmd")
+    p = sub.add_parser("mapa", help="mapeia o material da pessoa")
+    p.add_argument("alvo")
+    p.add_argument("-o", help="diretório de saída")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("plano", help="investigação completa + plano estruturado")
+    p.add_argument("alvo")
+    p.add_argument("-o", help="diretório de saída")
+    p.add_argument("--sem-ia", action="store_true")
+    p = sub.add_parser("conversa", help="interrogatório socrático")
+    p.add_argument("alvo", nargs="?")
+    p.add_argument("-o", help="diretório de saída")
+    p.add_argument("--rodadas", type=int, default=5)
+    p.add_argument("--tema", default=None)
+    p = sub.add_parser("debate", help="Cético × Convicto × Juiz")
+    p.add_argument("tema", nargs="*")
+    p.add_argument("--alvo", default=None)
+    for nome in ("status", "instale", "desinstale", "arte", "versao"):
+        sub.add_parser(nome)
+    args = ap.parse_args(argv)
+    comandos = {"mapa": cmd_mapa, "plano": cmd_plano, "conversa": cmd_conversa,
+                "debate": cmd_debate, "status": cmd_status, "instale": cmd_instale,
+                "desinstale": cmd_desinstale, "arte": cmd_arte, "versao": cmd_versao}
+    if args.cmd is None:
+        banner()
+        print(MENU)
+        return 0
+    return comandos[args.cmd](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
